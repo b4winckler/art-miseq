@@ -1,0 +1,54 @@
+% MiSeq binning
+% Björn Winckler
+
+# Input format
+
+MiSeq raw data consists of two fastq files - one for the forward reads and one
+for the reverse reads.  The reads in these two files should be in the same
+order.  The forward reads consist of 301 bp from the coding strand and the
+reverse reads consists of 301 bp from the noncoding strand.  Both reads are in
+the 5' to 3' direction which means that the reverse reads must be reverse
+complemented before they can be merged with the forward reads.
+
+An example fastq header looks like this:
+
+    @HWI-M01548R:6:000000000-A8JPR:1:1101:18848:1551 1:N:0:TCCTGAGCTATCCTCT
+
+The headers from a forward and reverse read should be identical apart from the
+string after the space which starts with `1:` for a forward read and `2:` for a
+reverse read.  The 16 bp at the end are the *sample barcode* which is used to
+identify which sample the read belongs to.  The barcode is broken down into two
+*indexes* of 8 bp each.  In this example index1 is `TATCCTCT` (the last 8 bp),
+and index2 is `TCCTGAGC` (the first 8 bp in reverse complement).
+
+Every forward read begins with a 16 bp *bin identifier*, followed by 0-2 bp of
+phasing nucleotides (to be ignored), followed by the forward primer 340F.  Each
+reverse read (before reverse complementing) begins with 1-3 phasing nucleotides
+(`A`, `CA` or `GCA`) followed by the reverse primer 806R (in reverse
+complement).
+
+ Primer     Sequence
+-------     ---------
+340F        `TCCTACGGGAGGCAGCAGT`
+806R        `ATTAGATACCCTGGTAGTCC`
+
+Here is an example of the start of a forward read (with bin identifier
+`CCAACCTTCTATGGCG`, followed by 1 phasing nucleotide, 340F, and then the
+sequence `AGGGAAT`):
+
+    CCAACCTTCTATGGCGATCCTACGGGAGGCAGCAGTAGGGAAT
+
+And here is an example of the start of a reverse read (with phase `CA`,
+followed by 806R in reverse complement, and then the sequence `CCTGTTTGCT`):
+
+    CAGGACTACCAGGGTATCTAATCCTGTTTGCT
+
+[sff2fastq]: https://github.com/indraniel/sff2fastq
+[usearch-script]: http://drive5.com/python/
+[fastqc]: http://www.bioinformatics.babraham.ac.uk/projects/fastqc/
+[usearch]: http://www.drive5.com/usearch/manual/
+[usearch-fastq_stats]: http://www.drive5.com/usearch/manual/fastq_stats.html
+[usearch-choose]: http://www.drive5.com/usearch/manual/fastq_choose_filter.html
+[qiime]: http://qiime.org/
+[uparse-pipeline]: http://www.drive5.com/usearch/manual/uparse_pipeline.html
+[greengenes]: http://greengenes.secondgenome.com
