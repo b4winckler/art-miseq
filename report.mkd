@@ -43,6 +43,73 @@ followed by 806R in reverse complement, and then the sequence `CCTGTTTGCT`):
 
     CAGGACTACCAGGGTATCTAATCCTGTTTGCT
 
+
+# Preprocessing
+
+## Splitting by barcode
+
+Since MiSeq fastq files are so big it is best to split them up into one fastq
+per sample.  I have written a specialized tool called [iseq][iseq] which can do this efficiently:
+
+    zcat big.fastq.gz | iseq split --barcodes barcodes.fasta
+
+The file `barcodes.fasta` is a normal fasta file where the header is used to
+name each sample and the corresponding sequence is the sample barcode.  The
+tool will create one file for each entry in `barcodes.fasta`.  Note that it is
+highly recommended to only use letters, numbers and underscores in the headers
+(e.g. `>sample_01` is good) since they are used to name files.  The files will
+be placed in the current directory, use `--output PATH` to write the output to
+the directory named by `PATH`.
+
+## Merging paired reads
+
+To merge the files containing forward reads (`fwd.fastq`) and reverse reads
+(`rev.fastq`) into one file, use [USEARCH][usearch]:
+
+    usearch -fastq_mergepairs fwd.fastq -reverse rev.fastq \
+            -fastq_truncqual 3 -fastqout merged.fastq
+
+The result is a file `merged.fastq` which contains all overlapping paired reads
+which could successfully be merged.  Note that the above command will likely
+fail if you try to run it on the original MiSeq data without first splitting
+by barcode since the 32 bit version of USEARCH cannot handle very large files.
+
+## Quality filtering
+
+Quality filtering is done to remove reads with many low quality bases.  Again
+[USEARCH][usearch] can be used for this task:
+
+    usearch -fastq_filter merged.fastq -fastq_maxee 0.5 \
+            -fastaout filtered.fasta
+
+The above command discards reads with more than 0.5 maximum expected errors and
+writes the good quality reads to the file `filtered.fasta`.  The author of
+USEARCH explains why [filtering by average Q is a bad idea][usearch-avgq] and
+this is the reason why we filter by maximum expected errors instead.
+
+The number of good quality reads is half of the number of lines, which can be
+seen with:
+
+    wc -l filtered.fasta
+
+## Sorting by bins
+
+To simplify upstreams steps we next sort the fasta files by their reads.  Since
+the bin identifier consists of the first 16 bp this also ensures that all reads
+that belong to the same bin are listed consequtively in the fasta file.  The
+sorting can be done as follows:
+
+    paste - - < filtered.fasta | sort -t "$(/bin/echo -e '\t')" \
+        -k2 | tr "\t" "\n" > filtered.fasta.sorting \
+        && mv filtered.fasta.sorting filtered.fasta
+
+Note that the `filtered.fasta` is sorted into a temporary file
+`filtered.fasta.sorting`, which upon completion is renamed to `filtered.fasta`.
+The `paste` command joins two lines at a time and the complicated-looking
+argument to `sort` ensures it separates keys by tabs and sorts on the second
+key.
+
+
 [sff2fastq]: https://github.com/indraniel/sff2fastq
 [usearch-script]: http://drive5.com/python/
 [fastqc]: http://www.bioinformatics.babraham.ac.uk/projects/fastqc/
@@ -52,3 +119,5 @@ followed by 806R in reverse complement, and then the sequence `CCTGTTTGCT`):
 [qiime]: http://qiime.org/
 [uparse-pipeline]: http://www.drive5.com/usearch/manual/uparse_pipeline.html
 [greengenes]: http://greengenes.secondgenome.com
+[iseq]: https://github.com/b4winckler/iseq
+[usearch-avgq]: http://www.drive5.com/usearch/manual/avgq.html
