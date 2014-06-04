@@ -92,6 +92,15 @@ seen with:
 
     wc -l filtered.fasta
 
+## Stripping primers
+
+Strip forward and reverse primers and phasing nucleotides:
+
+    iseq strip --skip 16 --shift 2 --errors 2 \
+        --input filtered.fasta TCCTACGGGAGGCAGCAGT | \
+        iseq strip --shift 3 --errors 2 --reverse \
+        ATTAGATACCCTGGTAGTCC > stripped.fasta
+
 ## Sorting by bins
 
 To simplify upstreams steps we next sort the fasta files by their reads.  Since
@@ -99,12 +108,9 @@ the bin identifier consists of the first 16 bp this also ensures that all reads
 that belong to the same bin are listed consequtively in the fasta file.  The
 sorting can be done as follows:
 
-    paste - - < filtered.fasta | sort -t "$(/bin/echo -e '\t')" \
-        -k2 | tr "\t" "\n" > filtered.fasta.sorting \
-        && mv filtered.fasta.sorting filtered.fasta
+    paste - - < stripped.fasta | sort -t "$(/bin/echo -e '\t')" \
+        -k2 | tr "\t" "\n" > sorted.fasta
 
-Note that the `filtered.fasta` is sorted into a temporary file
-`filtered.fasta.sorting`, which upon completion is renamed to `filtered.fasta`.
 The `paste` command joins two lines at a time and the complicated-looking
 argument to `sort` ensures it separates keys by tabs and sorts on the second
 key.
