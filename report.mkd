@@ -115,6 +115,22 @@ The `paste` command joins two lines at a time and the complicated-looking
 argument to `sort` ensures it separates keys by tabs and sorts on the second
 key.
 
+## Generating de novo OTUs
+
+Using UPARSE:
+
+    usearch -derep_fulllength in.fasta -output uniq.fasta -sizeout
+    usearch -cluster_otus uniq.fasta -otuid 0.97 -otus uparse_otu_reps.fasta
+
+Next, we find out the taxonomy of representative sequences using QIIME:
+
+    parallel_assign_taxonomy_rdp.py -i uparse_otu_reps.fasta \
+        -o taxonomy --jobs_to_start=1
+
+This generates, `taxonomy/uparse_otu_reps_tax_assignments.txt` where each line
+consists of three items separated by tabs: OTU header, taxonomic
+classification, and classification score.
+
 
 [sff2fastq]: https://github.com/indraniel/sff2fastq
 [usearch-script]: http://drive5.com/python/
