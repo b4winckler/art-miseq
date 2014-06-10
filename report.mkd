@@ -19,7 +19,7 @@ string after the space which starts with `1:` for a forward read and `2:` for a
 reverse read.  The 16 bp at the end are the *sample barcode* which is used to
 identify which sample the read belongs to.  The barcode is broken down into two
 *indexes* of 8 bp each.  In this example index1 is `TATCCTCT` (the last 8 bp),
-and index2 is `TCCTGAGC` (the first 8 bp in reverse complement).
+and index2 is `GCTCAGGA` (the first 8 bp in reverse complement).
 
 Every forward read begins with a 16 bp *bin identifier*, followed by 0-2 bp of
 phasing nucleotides (to be ignored), followed by the forward primer 340F.  Each
@@ -46,67 +46,146 @@ followed by 806R in reverse complement, and then the sequence `CCTGTTTGCT`):
 
 # Preprocessing
 
+Preprocessing consists of the following steps:
+
+1.  Split input into one fastq per barcode
+2.  Merge paired reads
+3.  Censor low quality reads
+4.  Strip primers
+5.  Form consensus reads
+
 ## Splitting by barcode
 
 Since MiSeq fastq files are so big it is best to split them up into one fastq
-per sample.  I have written a specialized tool called [iseq][iseq] which can do this efficiently:
+per sample.  I have written a specialized tool called [iseq split][iseq] which
+can do this efficiently.  Here is how you would split the forward reads
+(`forward.fastq.gz`) and reverse reads (`reverse.fastq.gz`) and place the
+output in the folders `forward/` and `reverse/`, respectively:
 
-    zcat big.fastq.gz | iseq split --barcodes barcodes.fasta
+    zcat forward.fastq.gz | iseq split --barcodes barcodes.fasta \
+        --output forward
+    zcat reverse.fastq.gz | iseq split --barcodes barcodes.fasta \
+        --output reverse
 
 The file `barcodes.fasta` is a normal fasta file where the header is used to
-name each sample and the corresponding sequence is the sample barcode.  The
-tool will create one file for each entry in `barcodes.fasta`.  Note that it is
-highly recommended to only use letters, numbers and underscores in the headers
-(e.g. `>sample_01` is good) since they are used to name files.  The files will
-be placed in the current directory, use `--output PATH` to write the output to
-the directory named by `PATH`.
+name each sample and the corresponding sequence is the sample barcode.  Here is
+an example `barcodes.fasta` with two barcodes:
+
+    >sample01
+    TAAGGCGATAGATCGC
+    >sample02
+    CGTACTAGTAGATCGC
+
+The tool will create one file for each entry in `barcodes.fasta`.  Reads which
+do not match a barcode will be written to a file called `unknown.fastq`.  Note
+that it is highly recommended to only use letters, numbers and underscores in
+the headers (e.g. `>sample01` is good, `>sample 01` is bad) since they are used
+to name files.  The files are placed in the current directory by default, use
+`--output PATH` to put the files in the directory named by `PATH`.
 
 ## Merging paired reads
 
-To merge the files containing forward reads (`fwd.fastq`) and reverse reads
-(`rev.fastq`) into one file, use [USEARCH][usearch]:
+The region of the 16S gene which we are sequencing covers base 340 to base 806
+on E. coli, so we expect our reads (including primers) to be around 806 - 340 +
+1 = 467 bp (plus 16 bp bin identifier, and 0-5 bp of phasing nucleotides).
+However, this number will vary between different species (e.g. on H. pylori
+this region is around 443 bp).  Since MiSeq reads are 301+301 bp we expect
+there to be an overlap between forward and reverse reads of about 602-467 = 135
+bp where the reads should be identical.  We call the process of joining a
+forward and a reverse read into one consecutive read *merging* of paired reads.
+Not all paired reads can be merged since sequencing errors can cause the
+overlap between forward and reverse reads not to match.
 
-    usearch -fastq_mergepairs fwd.fastq -reverse rev.fastq \
-            -fastq_truncqual 3 -fastqout merged.fastq
+To merge two files containing forward reads (`forward/sample01.fastq`) and
+reverse reads (`reverse/sample01.fastq`) into one file, use [USEARCH][usearch]:
 
-The result is a file `merged.fastq` which contains all overlapping paired reads
-which could successfully be merged.  Note that the above command will likely
-fail if you try to run it on the original MiSeq data without first splitting
-by barcode since the 32 bit version of USEARCH cannot handle very large files.
+    usearch -fastq_mergepairs forward/sample01.fastq \
+            -reverse reverse/sample01.fastq \
+            -fastq_truncqual 3 -fastqout merged/sample01.fastq
+
+The result is a file `merged/sample01.fastq` which contains all successfully
+merged reads.  Note that the above command will likely fail if
+you try to run it on the original MiSeq data without first splitting by barcode
+since the 32 bit (free) version of USEARCH cannot handle very large files.
+
+The number of successfully merged reads can be found by looking at the output
+from the above command or by counting the number of fastq separator lines (i.e.
+lines containing only a `+`) in the output:
+
+    grep -c "^+$" merged/sample01.fastq
 
 ## Quality filtering
 
-Quality filtering is done to remove reads with many low quality bases.  Again
-[USEARCH][usearch] can be used for this task:
+Quality filtering is performed in order to remove reads with many low quality
+bases.  Once low quality reads have been discarded we no longer need the
+quality information, so quality filtering also involves converting fastq files
+to fasta files.  Again [USEARCH][usearch] can be used for this task:
 
-    usearch -fastq_filter merged.fastq -fastq_maxee 0.5 \
-            -fastaout filtered.fasta
+    usearch -fastq_filter merged/sample01.fastq -fastq_maxee 0.5 \
+            -fastaout filtered/sample01.fasta
 
 The above command discards reads with more than 0.5 maximum expected errors and
-writes the good quality reads to the file `filtered.fasta`.  The author of
-USEARCH explains why [filtering by average Q is a bad idea][usearch-avgq] and
-this is the reason why we filter by maximum expected errors instead.
+writes the good quality reads to the file `filtered/sample01.fasta`.  The
+author of USEARCH explains why [filtering by average Q is a bad
+idea][usearch-avgq] and this is the reason why we filter by maximum expected
+errors instead.
 
-The number of good quality reads is half of the number of lines, which can be
-seen with:
+The number of good quality reads can found looking at the output from the above
+command or by counting the number of headers (i.e. lines starting with a `>`)
+in the output:
 
-    wc -l filtered.fasta
+    grep -c "^>" filtered/sample01.fasta
 
 ## Stripping primers
 
-Strip forward and reverse primers and phasing nucleotides:
+I have written a tool called [`iseq strip`][iseq] which quickly scans for
+primers and strips them from reads whilst discarding reads where primers could
+not be found.
 
-    iseq strip --skip 16 --shift 2 --errors 2 \
-        --input filtered.fasta TCCTACGGGAGGCAGCAGT | \
-        iseq strip --shift 3 --errors 2 --reverse \
-        ATTAGATACCCTGGTAGTCC > stripped.fasta
+Here is an example on how to strip 340F and 806R as well as any phasing
+nucleotides from `filtered/sample01.fasta` and write matching reads to
+`stripped/sample01.fasta`:
 
-## Sorting by bins
+    iseq strip --skip 16 --shift 2 --input filtered/sample01.fasta \
+        TCCTACGGGAGGCAGCAGT | iseq strip --shift 3 --reverse \
+        ATTAGATACCCTGGTAGTCC > stripped/sample01.fasta
 
-To simplify upstreams steps we next sort the fasta files by their reads.  Since
-the bin identifier consists of the first 16 bp this also ensures that all reads
-that belong to the same bin are listed consequtively in the fasta file.  The
-sorting can be done as follows:
+Forward reads are situated after the 16 bp bin identifier so the first 16 bp
+are skipped with `--skip 16`.  By passing `--shift 2` we signal that there may
+be 2 phasing nucleotides before the primer, so it may be shifted up to 2 bp (to
+the right).  In the second invocation we pass `--reverse` to signal that the
+reverse primer should be scanned for from the end of each read (note that in
+the invocation the reverse primer should not be reversed, nor complemented).
+By default only exact primer matches are kept, but it is possible to accept one
+or two errors by passing `--errors 1` or `--errors 2`.
+
+The tool leaves skipped bases in the reads (to simplify dealing with bin
+identifiers later) but shifted bases are stripped.  The bases that are stripped
+are put in the header so it is possible to see what the tool removed from each
+read.
+
+To count how many reads were discarded in the primer filtering we can count
+headers before and after filtering:
+
+    echo $(( $(grep -c "^>" filtered/sample01.fasta) - \
+             $(grep -c "^>" stripped/sample01.fasta) ))
+
+## Forming consensus reads
+
+If two reads share the same bin identifier (the first 16 bp of each read), then
+this signifies that they are duplicate reads from one and the same DNA
+template.  Hence, we must take all reads which share a bin identifer and
+produce one sequence whose quality, or certainty, is greater than that of each
+individual read.  We call this *forming consensus reads*.
+
+TBD.
+
+### Sorting by bins
+
+To simplify the forming of consensus reads we next sort the fasta files by
+their reads.  Since the bin identifier consists of the first 16 bp this also
+ensures that all reads that belong to the same bin are listed consequtively in
+the fasta file.  The sorting can be done as follows:
 
     paste - - < stripped.fasta | sort -t "$(/bin/echo -e '\t')" \
         -k2 | tr "\t" "\n" > sorted.fasta
@@ -114,6 +193,9 @@ sorting can be done as follows:
 The `paste` command joins two lines at a time and the complicated-looking
 argument to `sort` ensures it separates keys by tabs and sorts on the second
 key.
+
+
+# Determining bacterial composition
 
 ## Generating de novo OTUs
 
