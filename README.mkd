@@ -1,0 +1,23 @@
+# Content
+
+This repository contains a technical report on how I perform 16S sequence
+analysis on MiSeq data at the department of Medical Epidemiology and
+Biostatistics at Karolinska Institutet, Stockholm, Sweden.
+
+# Contributing
+
+Comments and suggestions for improvements are welcome and can be filed by
+creating a new issue or pull request.
+
+# Downloading
+
+Either generate a document from the markdown source manually (e.g. with
+[pandoc](http://johnmacfarlane.net/pandoc/)), or
+[download a pregenerated pdf](https://github.com/b4winckler/art-miseq/releases).
+
+# License
+
+Copyright 2014 Björn Winckler.
+
+This work is licensed under a
+[Creative Commons Attribution-NonCommercial-NoDerivatives 4.0 International License](http://creativecommons.org/licenses/by-nc-nd/4.0/).
